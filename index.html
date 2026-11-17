@@ -30,7 +30,7 @@
 <main>
   <h1>jmelis</h1>
   <p class="lead">Everything I have published with GitHub Pages, newest activity first. <a href="https://github.com/jmelis">github.com/jmelis</a></p>
-  <ul>
+  <ul id="sites">
     <li>
       <div class="head"><a class="name" href="https://jmelis.github.io/quick-maths/">quick-maths</a><a class="repo" href="https://github.com/jmelis/quick-maths">repo</a></div>
       <div class="url">jmelis.github.io/quick-maths</div>
@@ -92,7 +92,99 @@
       <div class="commit"><time datetime="2012-07-17">2012-07-17</time> · <a href="https://github.com/jmelis/albayjaime/commit/dca58a2"><code>dca58a2</code></a> actualizar camino</div>
     </li>
   </ul>
-  <footer>List last updated 2026-11-17. “Last commit” is the latest commit on each repo’s default branch.</footer>
+  <footer><span id="note">Snapshot from 2026-11-17.</span> “Last commit” is the latest commit on each repo’s default branch.</footer>
 </main>
+<script>
+// The list in the HTML is a snapshot. This replaces it with the current one, asked straight to GitHub's API: the public repos
+// of USER that have Pages on, each with its address and its latest commit. If GitHub can't be reached (anonymous visitors get
+// 60 requests an hour, and a fresh load needs about 15) the snapshot stays; a result is reused for TTL so most visits cost nothing.
+(() => {
+'use strict';
+const USER = 'jmelis';
+const TTL = 6 * 3600 * 1000;
+const KEY = 'sites.v1';
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* storage blocked: just ask again next time */ } },
+};
+
+async function gh(path) {
+  const r = await fetch(`https://api.github.com/${path}`, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!r.ok) throw Object.assign(new Error(`${path}: ${r.status}`), { status: r.status });
+  return r.json();
+}
+const unless = (status, fallback) => (e) => { if (e.status === status) return fallback; throw e; };   // only this one status is "fine"; anything else (rate limit, network) fails the whole load
+
+// Where a repo's Pages site lives. GitHub's Pages API needs a login, so: the repo's Website field if it has one, else the usual
+// address (a custom domain still works: GitHub redirects the usual address to it).
+function siteUrl(r) {
+  if (/^https?:\/\//.test(r.homepage || '')) return r.homepage;
+  if (/^[^/]+\.github\.(io|com)$/i.test(r.name)) return `https://${USER}.github.io/`;     // the user site, not a project site
+  return `https://${USER}.github.io/${r.name}/`;
+}
+
+async function collect() {
+  const repos = [];
+  for (let page = 1; ; page++) {
+    const batch = await gh(`users/${USER}/repos?type=owner&per_page=100&page=${page}`);
+    repos.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const rows = await Promise.all(repos.filter((r) => r.has_pages).map(async (r) => {
+    const commits = await gh(`repos/${r.full_name}/commits?per_page=1`).catch(unless(409, []));    // 409: empty repository
+    const c = commits[0];
+    return {
+      name: r.name, repo: r.html_url, url: siteUrl(r),
+      at: c ? c.commit.committer.date : '', sha: c ? c.sha.slice(0, 7) : '', msg: c ? c.commit.message.split('\n')[0] : '',
+    };
+  }));
+  return rows.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const safe = (u) => (/^https?:\/\//.test(u) ? u : '#');                          // only ever link to web addresses
+const link = (cls, href, text) => { const a = el('a', cls, text); a.href = safe(href); return a; };
+
+function render(rows) {
+  const ul = document.getElementById('sites');
+  ul.textContent = '';
+  for (const r of rows) {
+    const li = el('li');
+    const head = el('div', 'head');
+    head.append(link('name', r.url, r.name), link('repo', r.repo, 'repo'));
+    li.append(head, el('div', 'url', r.url.replace(/^https?:\/\/|\/$/g, '')));
+    if (r.sha) {
+      const c = el('div', 'commit'), t = el('time', null, r.at.slice(0, 10)), a = link(null, `${r.repo}/commit/${r.sha}`);
+      t.dateTime = r.at.slice(0, 10);
+      a.append(el('code', null, r.sha));
+      c.append(t, ' · ', a, ` ${r.msg}`);
+      li.append(c);
+    }
+    ul.append(li);
+  }
+}
+
+function show(rows, at, stale) {
+  render(rows);
+  document.getElementById('note').textContent = (stale ? 'GitHub could not be reached just now; this is the last copy fetched, ' : 'Live from GitHub, ')
+    + new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.';
+}
+
+async function main() {
+  const cached = store.get();
+  if (cached && Array.isArray(cached.rows) && Date.now() - cached.at < TTL) return show(cached.rows, cached.at);
+  try {
+    const rows = await collect();
+    if (!rows.length) throw new Error('no sites');
+    store.set({ at: Date.now(), rows });
+    show(rows, Date.now());
+  } catch (e) {
+    if (cached && Array.isArray(cached.rows)) show(cached.rows, cached.at, true);
+    else document.getElementById('note').textContent = 'GitHub could not be reached just now, so this is the snapshot from 2026-11-17.';
+  }
+}
+main();
+})();
+</script>
 </body>
 </html>
