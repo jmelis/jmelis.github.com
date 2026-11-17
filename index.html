@@ -82,11 +82,6 @@
       <div class="commit"><time datetime="2019-01-06">2019-01-06</time> · <a href="https://github.com/jmelis/codenames/commit/c44851c"><code>c44851c</code></a> dump complete spanish wordset</div>
     </li>
     <li>
-      <div class="head"><a class="name" href="http://jmelis.github.io/">jmelis.github.com</a><a class="repo" href="https://github.com/jmelis/jmelis.github.com">repo</a></div>
-      <div class="url">jmelis.github.io</div>
-      <div class="commit"><time datetime="2018-10-11">2018-10-11</time> · <a href="https://github.com/jmelis/jmelis.github.com/commit/39a001d"><code>39a001d</code></a> Initial commit</div>
-    </li>
-    <li>
       <div class="head"><a class="name" href="http://www.albayjaime.com/">albayjaime</a><a class="repo" href="https://github.com/jmelis/albayjaime">repo</a></div>
       <div class="url">www.albayjaime.com</div>
       <div class="commit"><time datetime="2012-07-17">2012-07-17</time> · <a href="https://github.com/jmelis/albayjaime/commit/dca58a2"><code>dca58a2</code></a> actualizar camino</div>
@@ -102,7 +97,7 @@
 'use strict';
 const USER = 'jmelis';
 const TTL = 6 * 3600 * 1000;
-const KEY = 'sites.v1';
+const KEY = 'sites.v2';
 const store = {
   get() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } },
   set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* storage blocked: just ask again next time */ } },
@@ -119,9 +114,10 @@ const unless = (status, fallback) => (e) => { if (e.status === status) return fa
 // address (a custom domain still works: GitHub redirects the usual address to it).
 function siteUrl(r) {
   if (/^https?:\/\//.test(r.homepage || '')) return r.homepage;
-  if (/^[^/]+\.github\.(io|com)$/i.test(r.name)) return `https://${USER}.github.io/`;     // the user site, not a project site
   return `https://${USER}.github.io/${r.name}/`;
 }
+
+const isUserSite = (r) => /^[^/]+\.github\.(io|com)$/i.test(r.name);     // this page's own repo: not listed
 
 async function collect() {
   const repos = [];
@@ -130,7 +126,7 @@ async function collect() {
     repos.push(...batch);
     if (batch.length < 100) break;
   }
-  const rows = await Promise.all(repos.filter((r) => r.has_pages).map(async (r) => {
+  const rows = await Promise.all(repos.filter((r) => r.has_pages && !isUserSite(r)).map(async (r) => {
     const commits = await gh(`repos/${r.full_name}/commits?per_page=1`).catch(unless(409, []));    // 409: empty repository
     const c = commits[0];
     return {
